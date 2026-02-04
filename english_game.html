@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Verb Quest - Escuela Pierre Fauré</title>
+    <style>
+        body { font-family: 'Comic Sans MS', sans-serif; background: #FFDE59; text-align: center; padding: 20px; }
+        .card { background: white; padding: 30px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); display: inline-block; width: 450px; border: 6px solid #2196F3; }
+        .hidden { display: none; }
+        input { width: 85%; padding: 12px; margin: 10px 0; border-radius: 10px; border: 2px solid #ddd; font-size: 1.1rem; }
+        .btn-main { background: #FF5757; color: white; border: none; padding: 15px 30px; border-radius: 15px; cursor: pointer; font-size: 1.3rem; font-weight: bold; width: 100%; box-shadow: 0 5px #cb4343; }
+        .sentence { font-size: 1.4rem; color: #333; margin: 20px 0; padding: 20px; background: #E3F2FD; border-radius: 15px; min-height: 70px; display: flex; align-items: center; justify-content: center; }
+        .option-btn { background: white; border: 3px solid #2196F3; color: #2196F3; padding: 12px; margin: 8px 0; border-radius: 12px; cursor: pointer; width: 100%; font-size: 1.1rem; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <div id="login-screen">
+        <h1 style="color: #2196F3;">🌟 Verb Quest! 🌟</h1>
+        <input type="text" id="student-name" placeholder="Full Name">
+        <input type="text" id="student-grade" placeholder="Grade">
+        <input type="text" id="student-group" placeholder="Group">
+        <br><br>
+        <button class="btn-main" onclick="initGame()">START QUEST!</button>
+    </div>
+
+    <div id="game-screen" class="hidden">
+        <div style="display: flex; justify-content: space-between; font-weight: bold;">
+            <span>Question <span id="q-num">1</span>/10</span>
+            <span>Score: <span id="live-score">0</span></span>
+        </div>
+        <div class="sentence" id="display-sentence">---</div>
+        <div id="options-grid"></div>
+        <div id="feedback" style="height: 30px; font-weight: bold;"></div>
+    </div>
+
+    <div id="finish-screen" class="hidden">
+        <h1 style="color: #4CAF50;">🏆 Quiz Complete!</h1>
+        <p id="upload-status">Connecting to Database...</p>
+        <div style="font-size: 5rem; color: #FF5757; font-weight: bold;" id="final-score">0</div>
+        <button class="btn-main" onclick="location.reload()">NEW QUIZ</button>
+    </div>
+</div>
+
+<audio id="sfx-win" src="https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3"></audio>
+<audio id="sfx-lose" src="https://assets.mixkit.co/active_storage/sfx/2003/2003-preview.mp3"></audio>
+
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+<script>
+    // DATA POOL
+    const masterPool = [
+        { s: "Yesterday, I ___ to the park.", c: "went", o: ["went", "go", "goed", "gone"] },
+        { s: "She ___ an apple for breakfast.", c: "ate", o: ["ate", "eat", "eaten", "ated"] },
+        { s: "We ___ a movie last night.", c: "saw", o: ["saw", "see", "seen", "seed"] },
+        { s: "He ___ the ball very high.", c: "threw", o: ["threw", "throw", "throwed", "thrown"] },
+        { s: "The teacher ___ us a new word.", c: "taught", o: ["taught", "teach", "teached", "taughten"] },
+        { s: "I ___ a loud noise.", c: "heard", o: ["heard", "hear", "heared", "hurd"] },
+        { s: "They ___ a big cake.", c: "made", o: ["made", "make", "maked", "mades"] },
+        { s: "The glass ___ when it fell.", c: "broke", o: ["broke", "break", "breaked", "broken"] },
+        { s: "I ___ my keys in the car.", c: "left", o: ["left", "leave", "leaved", "leften"] },
+        { s: "She ___ a beautiful song.", c: "sang", o: ["sang", "sing", "sung", "singed"] }
+    ];
+
+    let quizSet = [];
+    let currentIdx = 0;
+    let correctCount = 0;
+    let studentData = {};
+
+    function shuffle(arr) {
+        for (let i = arr.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+    }
+
+    // THIS FUNCTION STARTS THE GAME IMMEDIATELY
+    function initGame() {
+        studentData.name = document.getElementById('student-name').value;
+        studentData.grade = document.getElementById('student-grade').value;
+        studentData.group = document.getElementById('student-group').value;
+
+        if(!studentData.name || !studentData.grade) {
+            alert("Please enter your Name and Grade.");
+            return;
+        }
+
+        quizSet = [...masterPool];
+        shuffle(quizSet);
+        
+        document.getElementById('login-screen').classList.add('hidden');
+        document.getElementById('game-screen').classList.remove('hidden');
+        renderQuestion();
+    }
+
+    function renderQuestion() {
+        if(currentIdx >= 10) { finishQuiz(); return; }
+        const q = quizSet[currentIdx];
+        document.getElementById('q-num').innerText = currentIdx + 1;
+        document.getElementById('display-sentence').innerText = q.s;
+        const grid = document.getElementById('options-grid');
+        grid.innerHTML = '';
+        let options = [...q.o];
+        shuffle(options);
+        options.forEach(opt => {
+            const b = document.createElement('button');
+            b.className = 'option-btn';
+            b.innerText = opt;
+            b.onclick = () => {
+                if(opt === q.c) {
+                    correctCount++;
+                    document.getElementById('live-score').innerText = correctCount;
+                    document.getElementById('sfx-win').play();
+                } else {
+                    document.getElementById('sfx-lose').play();
+                }
+                currentIdx++;
+                renderQuestion();
+            };
+            grid.appendChild(b);
+        });
+    }
+
+    function finishQuiz() {
+        document.getElementById('game-screen').classList.add('hidden');
+        document.getElementById('finish-screen').classList.remove('hidden');
+        document.getElementById('final-score').innerText = correctCount + "/10";
+
+        // FIREBASE START ONLY AT THE END
+        const firebaseConfig = {
+            apiKey: "AIzaSyA3y9E9hLYx4CMtQtKcV-EQcVrxuLQ99SI",
+            databaseURL: "https://thgradeverbs-default-rtdb.firebaseio.com",
+            projectId: "thgradeverbs"
+        };
+        
+        try {
+            if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+            firebase.database().ref('results').push({
+                ...studentData,
+                score: correctCount,
+                timestamp: new Date().toLocaleString()
+            }).then(() => {
+                document.getElementById('upload-status').innerText = "✅ Saved to Teacher's List!";
+            }).catch(e => {
+                document.getElementById('upload-status').innerText = "⚠️ Offline: Show screen to Teacher";
+            });
+        } catch (e) {
+            document.getElementById('upload-status').innerText = "⚠️ Offline: Show screen to Teacher";
+        }
+    }
+</script>
+</body>
+</html>
